@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能剪贴板翻译器 - Design Mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-root: #0b0d10;
+    --bg-surface: #13161c;
+    --bg-card: #1a1e27;
+    --bg-input: #11141b;
+    --border: #252a35;
+    --border-focus: #3b4458;
+    --text-primary: #e4e7ef;
+    --text-secondary: #8b919f;
+    --text-muted: #5c6270;
+    --accent-green: #22c55e;
+    --accent-green-dim: #166534;
+    --accent-red: #ef4444;
+    --accent-red-dim: #7f1d1d;
+    --accent-blue: #60a5fa;
+    --accent-blue-dim: #1e3a5f;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 18px;
+    --font-display: 'Sora', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+    --font-mono: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    --transition-fast: 180ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-smooth: 320ms cubic-bezier(0.16, 1, 0.3, 1);
+    --transition-spring: 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-display);
+    background: var(--bg-root);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* Background ambient effects */
+  body::before {
+    content: '';
+    position: fixed;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background:
+      radial-gradient(ellipse 600px 500px at 20% 30%, rgba(34, 197, 94, 0.04) 0%, transparent 70%),
+      radial-gradient(ellipse 500px 400px at 80% 70%, rgba(96, 165, 250, 0.03) 0%, transparent 70%),
+      radial-gradient(ellipse 300px 300px at 50% 50%, rgba(139, 145, 159, 0.02) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Noise texture overlay */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app-window {
+    position: relative;
+    z-index: 1;
+    width: 480px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.03),
+      0 25px 60px rgba(0,0,0,0.5),
+      0 8px 20px rgba(0,0,0,0.4);
+    overflow: hidden;
+  }
+
+  /* === TITLE BAR === */
+  .title-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-card);
+  }
+
+  .title-bar-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .app-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(135deg, #1e3a5f 0%, #1a2e1a 100%);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+  }
+
+  .app-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: 0.01em;
+  }
+
+  .status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-red);
+    box-shadow: 0 0 8px var(--accent-red);
+    transition: all var(--transition-smooth);
+    position: relative;
+  }
+
+  .status-dot.active {
+    background: var(--accent-green);
+    box-shadow: 0 0 10px var(--accent-green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 8px var(--accent-green); }
+    50% { box-shadow: 0 0 16px var(--accent-green), 0 0 24px rgba(34,197,94,0.3); }
+  }
+
+  /* === MAIN CONTENT === */
+  .content {
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  /* Input field pattern */
+  .field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .field-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .input-wrapper {
+    position: relative;
+  }
+
+  .input-field {
+    width: 100%;
+    height: 38px;
+    padding: 0 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-family: var(--font-display);
+    font-size: 12.5px;
+    outline: none;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  }
+
+  .input-field:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.08);
+  }
+
+  .input-field::placeholder {
+    color: var(--text-muted);
+  }
+
+  /* Select dropdown */
+  .custom-select {
+    width: 100%;
+    height: 38px;
+    padding: 0 12px;
+    padding-right: 32px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-family: var(--font-display);
+    font-size: 12.5px;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b919f' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  }
+
+  .custom-select:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.08);
+  }
+
+  /* Password eye toggle */
+  .password-toggle {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 30px;
+    height: 30px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    transition: background var(--transition-fast);
+  }
+
+  .password-toggle:hover {
+    background: rgba(255,255,255,0.04);
+  }
+
+  .password-toggle svg {
+    width: 16px;
+    height: 16px;
+    stroke: var(--text-muted);
+    transition: stroke var(--transition-fast);
+  }
+
+  .password-toggle:hover svg {
+    stroke: var(--text-secondary);
+  }
+
+  /* === START/STOP BUTTON === */
+  .action-btn {
+    width: 100%;
+    height: 48px;
+    border: none;
+    border-radius: var(--radius-lg);
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: all var(--transition-smooth);
+    letter-spacing: 0.02em;
+  }
+
+  .action-btn.start {
+    background: linear-gradient(135deg, #16a34a 0%, #22c55e 50%, #16a34a 100%);
+    color: #052e16;
+    box-shadow: 0 4px 20px rgba(34, 197, 94, 0.25), inset 0 1px 0 rgba(255,255,255,0.15);
+  }
+
+  .action-btn.start:hover {
+    box-shadow: 0 6px 28px rgba(34, 197, 94, 0.35), inset 0 1px 0 rgba(255,255,255,0.2);
+    transform: translateY(-1px);
+  }
+
+  .action-btn.start:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 12px rgba(34, 197, 94, 0.2);
+  }
+
+  .action-btn.stop {
+    background: linear-gradient(135deg, #dc2626 0%, #ef4444 50%, #dc2626 100%);
+    color: #450a0a;
+    box-shadow: 0 4px 20px rgba(239, 68, 68, 0.25), inset 0 1px 0 rgba(255,255,255,0.15);
+  }
+
+  .action-btn.stop:hover {
+    box-shadow: 0 6px 28px rgba(239, 68, 68, 0.35), inset 0 1px 0 rgba(255,255,255,0.2);
+    transform: translateY(-1px);
+  }
+
+  .action-btn.stop:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 12px rgba(239, 68, 68, 0.2);
+  }
+
+  .action-btn .btn-icon {
+    display: inline-block;
+    margin-right: 6px;
+  }
+
+  /* === ADVANCED TOGGLE === */
+  .advanced-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 0;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color var(--transition-fast);
+    letter-spacing: 0.03em;
+    width: 100%;
+  }
+
+  .advanced-toggle:hover {
+    color: var(--text-secondary);
+  }
+
+  .advanced-toggle .chevron {
+    display: inline-block;
+    transition: transform var(--transition-smooth);
+    width: 14px;
+    height: 14px;
+  }
+
+  .advanced-toggle.open .chevron {
+    transform: rotate(180deg);
+  }
+
+  /* === ADVANCED PANEL === */
+  .advanced-panel {
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: max-height 450ms cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 300ms cubic-bezier(0.4, 0, 0.2, 1),
+                margin 300ms cubic-bezier(0.4, 0, 0.2, 1);
+    margin-top: 0;
+  }
+
+  .advanced-panel.open {
+    max-height: 500px;
+    opacity: 1;
+    margin-top: 10px;
+  }
+
+  .advanced-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+
+  /* Range slider */
+  .slider-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .slider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .slider-value {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--accent-blue);
+    background: var(--accent-blue-dim);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+
+  .custom-slider {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--border);
+    outline: none;
+  }
+
+  .custom-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent-blue);
+    cursor: pointer;
+    border: 3px solid var(--bg-card);
+    box-shadow: 0 0 0 1px var(--border), 0 2px 8px rgba(0,0,0,0.3);
+    transition: transform var(--transition-fast);
+  }
+
+  .custom-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+  }
+
+  /* Textarea */
+  .textarea-field {
+    width: 100%;
+    min-height: 60px;
+    padding: 10px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-family: var(--font-display);
+    font-size: 12px;
+    outline: none;
+    resize: vertical;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    line-height: 1.5;
+  }
+
+  .textarea-field:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.08);
+  }
+
+  .textarea-field::placeholder {
+    color: var(--text-muted);
+  }
+
+  /* === BOTTOM BUTTONS === */
+  .bottom-bar {
+    display: flex;
+    gap: 10px;
+    padding: 0 20px 18px 20px;
+  }
+
+  .secondary-btn {
+    flex: 1;
+    height: 36px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-family: var(--font-display);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    letter-spacing: 0.02em;
+  }
+
+  .secondary-btn:hover {
+    background: #202530;
+    color: var(--text-primary);
+    border-color: var(--border-focus);
+  }
+
+  .secondary-btn.primary-action {
+    background: rgba(96, 165, 250, 0.1);
+    border-color: rgba(96, 165, 250, 0.25);
+    color: var(--accent-blue);
+  }
+
+  .secondary-btn.primary-action:hover {
+    background: rgba(96, 165, 250, 0.18);
+    border-color: rgba(96, 165, 250, 0.4);
+  }
+
+  /* === FOOTER === */
+  .footer {
+    padding: 10px 20px;
+    text-align: center;
+    font-size: 10px;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+    letter-spacing: 0.04em;
+  }
+
+  /* === TOAST DEMO === */
+  .toast-demo-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 10px;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: none;
+    border: none;
+    font-family: var(--font-display);
+    width: 100%;
+    padding: 4px 0;
+    transition: color var(--transition-fast);
+  }
+
+  .toast-demo-trigger:hover {
+    color: var(--text-secondary);
+  }
+
+  /* Toast notification */
+  .toast {
+    position: fixed;
+    pointer-events: none;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04);
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+    transition: all 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .toast.show {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  .toast-icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--accent-green-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .toast-icon svg {
+    width: 12px;
+    height: 12px;
+    stroke: var(--accent-green);
+  }
+
+  .toast-text {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+
+<div class="app-window">
+  <!-- Title Bar -->
+  <div class="title-bar">
+    <div class="title-bar-left">
+      <div class="app-icon">&#x1F4CB;</div>
+      <span class="app-title">智能剪贴板翻译器</span>
+    </div>
+    <div class="status-indicator">
+      <div class="status-dot active" id="statusDot"></div>
+      <span id="statusLabel">运行中</span>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="content">
+    <!-- API Provider -->
+    <div class="field-group">
+      <label class="field-label">API 服务商</label>
+      <select class="custom-select" id="providerSelect">
+        <option value="deepseek">DeepSeek</option>
+        <option value="qwen">通义千问 (阿里)</option>
+        <option value="glm">智谱 GLM</option>
+        <option value="kimi">月之暗面 Kimi</option>
+        <option value="doubao">豆包 (字节)</option>
+        <option value="yi">零一万物</option>
+        <option value="custom">自定义</option>
+      </select>
+    </div>
+
+    <!-- API URL -->
+    <div class="field-group">
+      <label class="field-label">API 地址</label>
+      <input class="input-field" type="text" id="apiUrl"
+             value="https://api.deepseek.com/v1/chat/completions"
+             placeholder="https://api.example.com/v1/chat/completions">
+    </div>
+
+    <!-- API Key -->
+    <div class="field-group">
+      <label class="field-label">API Key</label>
+      <div class="input-wrapper">
+        <input class="input-field" type="password" id="apiKey"
+               value="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+               placeholder="输入你的 API Key"
+               style="padding-right: 40px;">
+        <button class="password-toggle" id="togglePassword" title="切换显示">
+          <!-- Eye open icon -->
+          <svg id="eyeOn" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          <!-- Eye off icon (hidden) -->
+          <svg id="eyeOff" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+            <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+            <path d="m14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+            <line x1="1" y1="1" x2="23" y2="23"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Model Name -->
+    <div class="field-group">
+      <label class="field-label">模型名称</label>
+      <input class="input-field" type="text" id="modelName"
+             value="deepseek-chat"
+             placeholder="例如: deepseek-chat, glm-4-flash">
+    </div>
+
+    <!-- Start/Stop Button -->
+    <button class="action-btn stop" id="toggleBtn">
+      <span class="btn-icon">&#x23F9;</span> 停止监听
+    </button>
+
+    <!-- Advanced Toggle -->
+    <button class="advanced-toggle" id="advancedToggle">
+      <span id="advancedLabel">高级参数</span>
+      <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </button>
+
+    <!-- Advanced Panel -->
+    <div class="advanced-panel" id="advancedPanel">
+      <div class="advanced-inner">
+        <!-- Temperature -->
+        <div class="slider-group">
+          <div class="slider-header">
+            <label class="field-label">Temperature</label>
+            <span class="slider-value" id="tempValue">0.3</span>
+          </div>
+          <input class="custom-slider" type="range" id="temperature"
+                 min="0" max="2" step="0.1" value="0.3">
+        </div>
+
+        <!-- Max Tokens -->
+        <div class="field-group">
+          <label class="field-label">Max Tokens</label>
+          <input class="input-field" type="number" id="maxTokens"
+                 value="2000" min="1" max="128000" placeholder="2000">
+        </div>
+
+        <!-- System Prompt -->
+        <div class="field-group">
+          <label class="field-label">System Prompt</label>
+          <textarea class="textarea-field" id="systemPrompt" rows="2"
+                    placeholder="自定义系统提示词...">你是一个专业的中译英翻译助手。请将用户输入的中文准确、流畅地翻译成英文。只输出译文，不要添加任何解释或额外内容。</textarea>
+        </div>
+
+        <!-- Custom Rules -->
+        <div class="field-group">
+          <label class="field-label">个人翻译偏好</label>
+          <textarea class="textarea-field" id="customRules" rows="2"
+                    placeholder="例如：&#10;机器学习 → machine learning&#10;技术术语保持原文不翻译&#10;使用英式英语拼写"></textarea>
+        </div>
+
+        <!-- Poll Interval -->
+        <div class="field-group">
+          <label class="field-label">轮询间隔（秒）</label>
+          <input class="input-field" type="number" id="pollInterval"
+                 value="0.8" min="0.3" max="5" step="0.1" placeholder="0.8">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Buttons -->
+  <div class="bottom-bar">
+    <button class="secondary-btn" id="historyBtn">
+      &#x1F4C4; 历史记录
+    </button>
+    <button class="secondary-btn primary-action" id="saveBtn">
+      &#x1F4BE; 保存配置
+    </button>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    智能剪贴板翻译器 v1.0.0
+    <button class="toast-demo-trigger" id="toastDemo">
+      &#x2728; 点击预览翻译完成提示
+    </button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast">
+  <div class="toast-icon">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="20 6 9 17 4 12"/>
+    </svg>
+  </div>
+  <span class="toast-text">翻译完成，可以粘贴</span>
+</div>
+
+<script>
+  // === Status Toggle ===
+  let isRunning = true;
+  const toggleBtn = document.getElementById('toggleBtn');
+  const statusDot = document.getElementById('statusDot');
+  const statusLabel = document.getElementById('statusLabel');
+
+  toggleBtn.addEventListener('click', () => {
+    isRunning = !isRunning;
+    if (isRunning) {
+      toggleBtn.className = 'action-btn stop';
+      toggleBtn.innerHTML = '<span class="btn-icon">&#x23F9;</span> 停止监听';
+      statusDot.classList.add('active');
+      statusLabel.textContent = '运行中';
+    } else {
+      toggleBtn.className = 'action-btn start';
+      toggleBtn.innerHTML = '<span class="btn-icon">&#x25B6;</span> 启动监听';
+      statusDot.classList.remove('active');
+      statusLabel.textContent = '已停止';
+    }
+  });
+
+  // === Password Toggle ===
+  const togglePassword = document.getElementById('togglePassword');
+  const apiKeyInput = document.getElementById('apiKey');
+  const eyeOn = document.getElementById('eyeOn');
+  const eyeOff = document.getElementById('eyeOff');
+
+  togglePassword.addEventListener('click', () => {
+    const isPassword = apiKeyInput.type === 'password';
+    apiKeyInput.type = isPassword ? 'text' : 'password';
+    eyeOn.style.display = isPassword ? 'none' : 'block';
+    eyeOff.style.display = isPassword ? 'block' : 'none';
+  });
+
+  // === Advanced Panel Toggle ===
+  const advancedToggle = document.getElementById('advancedToggle');
+  const advancedPanel = document.getElementById('advancedPanel');
+  const advancedLabel = document.getElementById('advancedLabel');
+  let isAdvancedOpen = false;
+
+  advancedToggle.addEventListener('click', () => {
+    isAdvancedOpen = !isAdvancedOpen;
+    if (isAdvancedOpen) {
+      advancedPanel.classList.add('open');
+      advancedToggle.classList.add('open');
+      advancedLabel.textContent = '收起高级参数';
+    } else {
+      advancedPanel.classList.remove('open');
+      advancedToggle.classList.remove('open');
+      advancedLabel.textContent = '高级参数';
+    }
+  });
+
+  // === Temperature Slider ===
+  const tempSlider = document.getElementById('temperature');
+  const tempValue = document.getElementById('tempValue');
+  tempSlider.addEventListener('input', () => {
+    tempValue.textContent = parseFloat(tempSlider.value).toFixed(1);
+  });
+
+  // === Provider Preset URLs & Models ===
+  const presets = {
+    deepseek:  { url: 'https://api.deepseek.com/v1/chat/completions', model: 'deepseek-chat' },
+    qwen:      { url: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen-turbo' },
+    glm:       { url: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', model: 'glm-4-flash' },
+    kimi:      { url: 'https://api.moonshot.cn/v1/chat/completions', model: 'moonshot-v1-8k' },
+    doubao:    { url: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions', model: 'doubao-pro-32k' },
+    yi:        { url: 'https://api.lingyiwanwu.com/v1/chat/completions', model: 'yi-large' },
+    custom:    { url: '', model: '' }
+  };
+
+  const providerSelect = document.getElementById('providerSelect');
+  const apiUrl = document.getElementById('apiUrl');
+  const modelName = document.getElementById('modelName');
+
+  providerSelect.addEventListener('change', () => {
+    const preset = presets[providerSelect.value];
+    if (preset && providerSelect.value !== 'custom') {
+      apiUrl.value = preset.url;
+      modelName.value = preset.model;
+    }
+  });
+
+  // === Toast Demo ===
+  const toast = document.getElementById('toast');
+  const toastDemo = document.getElementById('toastDemo');
+  let toastTimer;
+
+  function showToast(x, y) {
+    clearTimeout(toastTimer);
+    toast.style.left = x + 'px';
+    toast.style.top = (y - 50) + 'px';
+    toast.classList.add('show');
+    toastTimer = setTimeout(() => {
+      toast.classList.remove('show');
+    }, 1500);
+  }
+
+  toastDemo.addEventListener('click', (e) => {
+    showToast(e.clientX, e.clientY);
+  });
+
+  // Save config feedback
+  const saveBtn = document.getElementById('saveBtn');
+  saveBtn.addEventListener('click', () => {
+    const originalText = saveBtn.innerHTML;
+    saveBtn.innerHTML = '&#x2705; 已保存';
+    saveBtn.style.color = 'var(--accent-green)';
+    saveBtn.style.borderColor = 'var(--accent-green-dim)';
+    saveBtn.style.background = 'rgba(34,197,94,0.1)';
+    setTimeout(() => {
+      saveBtn.innerHTML = originalText;
+      saveBtn.style.color = '';
+      saveBtn.style.borderColor = '';
+      saveBtn.style.background = '';
+    }, 1800);
+  });
+
+  // History button feedback
+  const historyBtn = document.getElementById('historyBtn');
+  historyBtn.addEventListener('click', () => {
+    const originalText = historyBtn.innerHTML;
+    historyBtn.innerHTML = '&#x1F4E8; 正在打开...';
+    setTimeout(() => {
+      historyBtn.innerHTML = originalText;
+    }, 1000);
+  });
+</script>
+
+</body>
+</html>
