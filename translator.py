@@ -1,22 +1,31 @@
 """翻译 API 调用模块"""
 
 import json
+from typing import Optional
+
 import requests
 
 
-def _build_payload(text: str, config: dict) -> dict:
-    """构建 API 请求体"""
+def _build_payload(text: str, config: dict, history: Optional[list[dict]] = None) -> dict:
+    """构建 API 请求体，可选加入历史记录作为 few-shot 示例"""
     system_content = config.get('system_prompt', '')
     custom_rules = config.get('custom_rules', '').strip()
     if custom_rules:
         system_content += f'\n\n用户翻译偏好：\n{custom_rules}'
 
+    messages = [{'role': 'system', 'content': system_content}]
+
+    # 插入前 2 次翻译记录作为 few-shot 上下文（时间正序）
+    if history:
+        for h in reversed(history):
+            messages.append({'role': 'user', 'content': h['original_text']})
+            messages.append({'role': 'assistant', 'content': h['translated_text']})
+
+    messages.append({'role': 'user', 'content': text})
+
     payload = {
         'model': config['model_name'],
-        'messages': [
-            {'role': 'system', 'content': system_content},
-            {'role': 'user', 'content': text},
-        ],
+        'messages': messages,
         'temperature': config.get('temperature', 0.3),
         'max_tokens': config.get('max_tokens', 2000),
     }
@@ -37,14 +46,10 @@ def test_connection(config: dict) -> tuple[bool, str]:
         'Authorization': f'Bearer {config["api_key"]}',
     }
     payload = _build_payload('Hello', config)
-    # 测试连接时限制 token 消耗
     payload['max_tokens'] = 5
     try:
         response = requests.post(
-            config['api_url'],
-            headers=headers,
-            json=payload,
-            timeout=10,
+            config['api_url'], headers=headers, json=payload, timeout=10,
         )
         response.raise_for_status()
         return True, 'API 连接成功'
@@ -58,19 +63,16 @@ def test_connection(config: dict) -> tuple[bool, str]:
         return False, f'连接失败: {e}'
 
 
-def translate(text: str, config: dict) -> str:
-    """调用大模型 API 翻译中文到英文"""
+def translate(text: str, config: dict, history: Optional[list[dict]] = None) -> str:
+    """调用大模型 API 翻译中文到英文，可选历史记录作为上下文"""
     headers = {
         'Content-Type': 'application/json',
         'Authorization': f'Bearer {config["api_key"]}',
     }
-    payload = _build_payload(text, config)
+    payload = _build_payload(text, config, history)
 
     response = requests.post(
-        config['api_url'],
-        headers=headers,
-        json=payload,
-        timeout=15,
+        config['api_url'], headers=headers, json=payload, timeout=15,
     )
     response.raise_for_status()
     data = response.json()

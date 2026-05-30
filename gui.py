@@ -340,7 +340,7 @@ class App(ctk.CTk):
         footer = ctk.CTkFrame(self, fg_color='transparent')
         footer.pack(fill='x', side='bottom')
         ctk.CTkLabel(
-            footer, text='智能剪贴板翻译器 v1.0.0',
+            footer, text='智能剪贴板翻译器 v1.1.0',
             font=('Microsoft YaHei', 9),
             text_color=COLORS['text_muted'],
         ).pack(pady=(2, 6))

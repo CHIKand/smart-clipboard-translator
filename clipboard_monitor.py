@@ -8,7 +8,7 @@ import pyperclip
 
 from language_detector import contains_chinese
 from translator import translate
-from db import add_record
+from db import add_record, get_all_records
 
 
 class ClipboardMonitor(threading.Thread):
@@ -75,10 +75,16 @@ class ClipboardMonitor(threading.Thread):
                 time.sleep(self._config.get('poll_interval', 0.8))
                 continue
 
+            # 获取前 1 条历史记录作为上下文
+            try:
+                history = get_all_records(limit=1)
+            except Exception:
+                history = []
+
             # 执行翻译
             self._notify_status('翻译中...')
             try:
-                result = translate(current, self._config)
+                result = translate(current, self._config, history)
             except Exception as e:
                 self._notify_status(f'翻译失败: {e}')
                 time.sleep(self._config.get('poll_interval', 0.8))
